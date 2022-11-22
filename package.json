@@ -1,5 +1,5 @@
 {
-  "name": "GoogleReviewsScraper",
+  "name": "google-reviews-scraper",
   "version": "1.0.0",
   "main": "index.ts",
   "repository": "git@github.com:cajudeleite/GoogleReviewsScraper.git",
