@@ -1,0 +1,12 @@
+{
+  "name": "GoogleReviewsScraper",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "repository": "git@github.com:cajudeleite/GoogleReviewsScraper.git",
+  "author": "Caju <nathandebaz266@gmail.com>",
+  "license": "MIT",
+  "private": false,
+  "dependencies": {
+    "puppeteer": "^19.2.2"
+  }
+}
