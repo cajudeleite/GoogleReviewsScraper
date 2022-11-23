@@ -1,4 +1,5 @@
 import puppeteer from "puppeteer";
+import fs from "fs";
 
 const checkIfInCookiePage = async (page: puppeteer.Page) => {
   try {
@@ -13,6 +14,12 @@ const checkIfInCookiePage = async (page: puppeteer.Page) => {
 
 const getReviews = async (searchQuery: string) => {
   try {
+    if (fs.existsSync("./results.json")) {
+      fs.unlink("./results.json", (error) => {
+        null;
+      });
+    }
+
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
 
@@ -96,10 +103,20 @@ const getReviews = async (searchQuery: string) => {
       reviewsByRestaurant.push({ restaurant: restaurant.name, reviews });
     }
 
-    // Print all the files.
-    console.log(reviewsByRestaurant);
+    // Save the results in results.json
+    const results = {
+      results: reviewsByRestaurant,
+    };
+
+    const jsonResults = JSON.stringify(results);
+
+    fs.writeFile("results.json", jsonResults, (error) => {
+      null;
+    });
 
     await browser.close();
+
+    console.log("Done");
   } catch (error) {
     console.error(error);
   }
