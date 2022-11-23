@@ -49,6 +49,8 @@ const getReviews = async (searchQuery: string) => {
       }));
     }, resultsSelector);
 
+    const reviewsByRestaurant: { restaurant: string | null; reviews: { stars: string; text: string }[] }[] = [];
+
     for (let i = 0; i < restaurants.length; i++) {
       const restaurant = restaurants[i];
 
@@ -69,18 +71,33 @@ const getReviews = async (searchQuery: string) => {
         });
       }, moreReviewsButtonSelector);
 
-      // await Promise.all([
-      //   page.waitForNavigation(), // The promise resolves after navigation has finished
-      // ]);
+      const reviewsSelector = ".jJc9Ad";
+      await page.waitForSelector(reviewsSelector);
 
-      const rating = ".fontDisplayLarge";
-      await page.waitForSelector(rating);
-      const rate = await page.evaluate((rating) => document.querySelector(rating)?.textContent, rating);
-      console.log(rate);
+      const reviews = await page.evaluate((reviewsSelector) => {
+        return [...document.querySelectorAll(reviewsSelector)].map((anchor) => {
+          const contentSelector = ".GHT2ce";
+          const content = anchor.querySelectorAll(contentSelector)[1];
+
+          const starsSelector = ".kvMYJc";
+          const stars = content.querySelector(starsSelector)?.ariaLabel;
+
+          const moreButtonSelector = ".w8nwRe";
+          const moreButton: HTMLButtonElement | null = content.querySelector(moreButtonSelector);
+          if (moreButton) moreButton.click();
+
+          const textSelector = ".wiI7pd";
+          const text = content.querySelector(textSelector)?.textContent;
+
+          return { stars: stars || "0", text: text || "" };
+        });
+      }, reviewsSelector);
+
+      reviewsByRestaurant.push({ restaurant: restaurant.name, reviews });
     }
 
     // Print all the files.
-    // console.log(urls.join("\n"));
+    console.log(reviewsByRestaurant);
 
     await browser.close();
   } catch (error) {
@@ -88,4 +105,12 @@ const getReviews = async (searchQuery: string) => {
   }
 };
 
-getReviews("french restaurants in paris");
+const getParamsFromTerminal = () => {
+  const argvArray = [];
+  for (let i = 0; i < process.argv.length - 2; i++) {
+    argvArray.push(process.argv[i + 2]);
+  }
+  return argvArray.join(" ");
+};
+
+getReviews(getParamsFromTerminal());
