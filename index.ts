@@ -27,6 +27,11 @@ const initPuppeteer = async (searchQuery: string) => {
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
 
+    if (!searchQuery) {
+      await browser.close();
+      throw new Error("Prompt is empty");
+    }
+
     await page.goto(`https://www.google.com/maps/search/${searchQuery.replace(" ", "+")}`);
 
     console.log("Went to the page");
@@ -183,7 +188,6 @@ const getReviews = async (searchQuery: string) => {
     // Get reviews from the places
     const reviewsByPlace = await getPlacesReviews(places, page);
 
-    // Save the results in results.json
     const results = {
       results: reviewsByPlace,
     };
@@ -200,6 +204,7 @@ const getReviews = async (searchQuery: string) => {
   }
 };
 
+// Get prompt from the terminal when executing the script
 const getParamsFromTerminal = () => {
   const argvArray = [];
   for (let i = 0; i < process.argv.length - 2; i++) {
