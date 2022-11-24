@@ -7,6 +7,8 @@
   "license": "MIT",
   "private": false,
   "dependencies": {
+    "@types/cli-progress": "^3.11.0",
+    "cli-progress": "^3.11.2",
     "puppeteer": "^19.2.2"
   }
 }

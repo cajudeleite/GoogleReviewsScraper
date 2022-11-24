@@ -1,5 +1,8 @@
 import puppeteer from "puppeteer";
+import cliProgress from "cli-progress";
 import fs from "fs";
+
+const bar = new cliProgress.SingleBar({}, cliProgress.Presets.legacy);
 
 const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
@@ -11,10 +14,12 @@ const deleteResultsFile = () =>
 const writeResultsInFile = (results: {
   results: {
     place: string | null;
-    reviews: {
-      stars: string;
-      text: string;
-    }[];
+    reviews:
+      | {
+          stars: number | null;
+          text: string;
+        }[]
+      | null;
   }[];
 }) => {
   const jsonResults = JSON.stringify(results);
@@ -100,14 +105,15 @@ const scrollToTheBottomOfPlaces = async (page: puppeteer.Page) => {
     const realFeedSelector = `${feedSelector}:nth-child(${feedIndex})`;
     await page.waitForSelector(realFeedSelector);
 
-    console.log("Fetching all the places corresponding to the prompt given");
+    console.clear();
+    console.log("Fetching all the places corresponding to the given prompt. This can take a while...");
 
     let firstHeight = await getElementHeightAndScroll(page, realFeedSelector);
-    await delay(2000);
+    await delay(3000);
     let secondHeight = await getElementHeightAndScroll(page, realFeedSelector);
 
     while (firstHeight < secondHeight) {
-      await delay(2000);
+      await delay(3000);
 
       firstHeight = secondHeight;
       secondHeight = await getElementHeightAndScroll(page, realFeedSelector);
@@ -119,7 +125,9 @@ const scrollToTheBottomOfPlaces = async (page: puppeteer.Page) => {
 
 const getPlacesNameAndUrl = async (page: puppeteer.Page) => {
   try {
+    // Scroll to the bottom of places feed
     await scrollToTheBottomOfPlaces(page);
+
     // Wait for the results page to load and display the results.
     const resultsSelector = ".hfpxzc";
     await page.waitForSelector(resultsSelector);
@@ -139,7 +147,7 @@ const getPlacesNameAndUrl = async (page: puppeteer.Page) => {
 };
 
 const getPlaceReview = async (place: { name: string | null; url: string }, page: puppeteer.Page) => {
-  console.log(`Fetching ${place.name}`);
+  console.log(`  Fetching ${place.name}`);
 
   try {
     // Go to place's Google Maps page
@@ -163,7 +171,8 @@ const getPlaceReview = async (place: { name: string | null; url: string }, page:
 
         // Get stars
         const starsSelector = ".kvMYJc";
-        const stars = content.querySelector(starsSelector)?.ariaLabel;
+        const starsRes = content.querySelector(starsSelector)?.ariaLabel;
+        const stars = starsRes ? parseInt(starsRes[1]) : null;
 
         // Get expand button and click it if it exists
         const moreButtonSelector = ".w8nwRe";
@@ -174,27 +183,30 @@ const getPlaceReview = async (place: { name: string | null; url: string }, page:
         const textSelector = ".wiI7pd";
         const text = content.querySelector(textSelector)?.textContent;
 
-        return { stars: stars || "0", text: text || "" };
+        return { stars: stars, text: text || "" };
       });
     }, reviewsSelector);
 
     return { place: place.name, reviews };
   } catch (error) {
-    throw error;
+    return { place: place.name, reviews: null };
   }
 };
 
 const getPlacesReviews = async (places: { name: string | null; url: string }[], page: puppeteer.Page) => {
-  const reviewsByPlace: { place: string | null; reviews: { stars: string; text: string }[] }[] = [];
+  const reviewsByPlace: { place: string | null; reviews: { stars: number | null; text: string }[] | null }[] = [];
 
+  console.clear();
   console.log(`${places.length} total places`);
 
   try {
-    //REFACTO
-    for (let i = 0; i < 5; i++) {
+    bar.start(places.length, 0);
+    for (let i = 0; i < places.length; i++) {
       const placeReviews = await getPlaceReview(places[i], page);
+      bar.update(i + 1);
       reviewsByPlace.push(placeReviews);
     }
+    bar.stop();
 
     return reviewsByPlace;
   } catch (error) {
@@ -253,6 +265,7 @@ const getReviews = async (searchQuery: string) => {
     // Close scraper
     await browser.close();
 
+    console.clear();
     console.log("Done");
   } catch (error) {
     console.error(error);
