@@ -92,31 +92,19 @@ const getElementHeightAndScroll = async (page: puppeteer.Page, selector: string)
   }
 };
 
-const scrollToTheBottomOfPlaces = async (page: puppeteer.Page) => {
+const scrollToTheBottomOfContainer = async (page: puppeteer.Page, containerSelector: string) => {
   try {
-    const feedSelector = ".DxyBCb";
-    await page.waitForSelector(feedSelector);
+    await page.waitForSelector(containerSelector);
 
-    const feedIndex = await page.evaluate(
-      (feedSelector) => [...document.querySelectorAll(feedSelector)].findIndex((anchor) => anchor.ariaLabel?.includes("Résultats")),
-      feedSelector
-    );
-
-    const realFeedSelector = `${feedSelector}:nth-child(${feedIndex})`;
-    await page.waitForSelector(realFeedSelector);
-
-    console.clear();
-    console.log("Fetching all the places corresponding to the given prompt. This can take a while...");
-
-    let firstHeight = await getElementHeightAndScroll(page, realFeedSelector);
+    let firstHeight = await getElementHeightAndScroll(page, containerSelector);
     await delay(3000);
-    let secondHeight = await getElementHeightAndScroll(page, realFeedSelector);
+    let secondHeight = await getElementHeightAndScroll(page, containerSelector);
 
     while (firstHeight < secondHeight) {
       await delay(3000);
 
       firstHeight = secondHeight;
-      secondHeight = await getElementHeightAndScroll(page, realFeedSelector);
+      secondHeight = await getElementHeightAndScroll(page, containerSelector);
     }
   } catch (error) {
     throw error;
@@ -125,8 +113,21 @@ const scrollToTheBottomOfPlaces = async (page: puppeteer.Page) => {
 
 const getPlacesNameAndUrl = async (page: puppeteer.Page) => {
   try {
+    const feedSelector = ".DxyBCb";
+    await page.waitForSelector(feedSelector);
+
+    // Get the feed container
+    const feedIndex = await page.evaluate(
+      (feedSelector) => [...document.querySelectorAll(feedSelector)].findIndex((anchor) => anchor.ariaLabel?.includes("Résultats")),
+      feedSelector
+    );
+
+    const realFeedSelector = `${feedSelector}:nth-child(${feedIndex})`;
+
     // Scroll to the bottom of places feed
-    await scrollToTheBottomOfPlaces(page);
+    console.clear();
+    console.log("Fetching all the places corresponding to the given prompt. This can take a while...");
+    await scrollToTheBottomOfContainer(page, realFeedSelector);
 
     // Wait for the results page to load and display the results.
     const resultsSelector = ".hfpxzc";
@@ -146,7 +147,23 @@ const getPlacesNameAndUrl = async (page: puppeteer.Page) => {
   }
 };
 
-const getPlaceReview = async (place: { name: string | null; url: string }, page: puppeteer.Page) => {
+const showAllReviews = async (page: puppeteer.Page) => {
+  try {
+    const moreReviewsButtonSelector = ".M77dve";
+    await page.waitForSelector(moreReviewsButtonSelector);
+
+    // Find more reviews button
+    await page.evaluate((moreReviewsButtonSelector) => {
+      [...document.querySelectorAll(moreReviewsButtonSelector)].forEach((anchor) => {
+        if (anchor.ariaLabel?.includes("Plus d'avis")) (anchor as HTMLButtonElement).click();
+      });
+    }, moreReviewsButtonSelector);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const getPlaceReviews = async (place: { name: string | null; url: string }, page: puppeteer.Page) => {
   console.log(`  Fetching ${place.name}`);
 
   try {
@@ -158,6 +175,10 @@ const getPlaceReview = async (place: { name: string | null; url: string }, page:
 
     // Show all the place's reviews
     await showAllReviews(page);
+
+    const reviewsContainerSelector = ".dS8AEf";
+
+    await scrollToTheBottomOfContainer(page, reviewsContainerSelector);
 
     const reviewsSelector = ".jJc9Ad";
     await page.waitForSelector(reviewsSelector);
@@ -202,29 +223,13 @@ const getPlacesReviews = async (places: { name: string | null; url: string }[], 
   try {
     bar.start(places.length, 0);
     for (let i = 0; i < places.length; i++) {
-      const placeReviews = await getPlaceReview(places[i], page);
+      const placeReviews = await getPlaceReviews(places[i], page);
       bar.update(i + 1);
       reviewsByPlace.push(placeReviews);
     }
     bar.stop();
 
     return reviewsByPlace;
-  } catch (error) {
-    throw error;
-  }
-};
-
-const showAllReviews = async (page: puppeteer.Page) => {
-  try {
-    const moreReviewsButtonSelector = ".M77dve";
-    await page.waitForSelector(moreReviewsButtonSelector);
-
-    // Find more reviews button
-    await page.evaluate((moreReviewsButtonSelector) => {
-      [...document.querySelectorAll(moreReviewsButtonSelector)].forEach((anchor) => {
-        if (anchor.ariaLabel?.includes("Plus d'avis")) (anchor as HTMLButtonElement).click();
-      });
-    }, moreReviewsButtonSelector);
   } catch (error) {
     throw error;
   }
