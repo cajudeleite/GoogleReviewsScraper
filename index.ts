@@ -16,7 +16,7 @@ const writeResultsInFile = (results: {
     place: string | null;
     reviews:
       | {
-          stars: number | null;
+          stars: number;
           text: string;
         }[]
       | null;
@@ -135,10 +135,15 @@ const getPlacesNameAndUrl = async (page: puppeteer.Page) => {
 
     // Extract the urls from the places
     const places = await page.evaluate((resultsSelector) => {
-      return [...document.querySelectorAll(resultsSelector)].map((anchor) => ({
-        name: anchor.ariaLabel,
-        url: (anchor as HTMLLinkElement).href,
-      }));
+      const placeList: { name: string; url: string }[] = [];
+      [...document.querySelectorAll(resultsSelector)].forEach((anchor) => {
+        if (anchor.ariaLabel)
+          placeList.push({
+            name: anchor.ariaLabel,
+            url: (anchor as HTMLLinkElement).href,
+          });
+      });
+      return placeList;
     }, resultsSelector);
 
     return places;
@@ -163,7 +168,7 @@ const showAllReviews = async (page: puppeteer.Page) => {
   }
 };
 
-const getPlaceReviews = async (place: { name: string | null; url: string }, page: puppeteer.Page) => {
+const getPlaceReviews = async (place: { name: string; url: string }, page: puppeteer.Page) => {
   console.log(`  Fetching ${place.name}`);
 
   try {
@@ -185,7 +190,8 @@ const getPlaceReviews = async (place: { name: string | null; url: string }, page
 
     // Get reviews from place
     const reviews = await page.evaluate((reviewsSelector) => {
-      return [...document.querySelectorAll(reviewsSelector)].map((anchor) => {
+      const reviewsList: { stars: number; text: string }[] = [];
+      [...document.querySelectorAll(reviewsSelector)].forEach((anchor) => {
         // Get content div
         const contentSelector = ".GHT2ce";
         const content = anchor.querySelectorAll(contentSelector)[1];
@@ -204,8 +210,10 @@ const getPlaceReviews = async (place: { name: string | null; url: string }, page
         const textSelector = ".wiI7pd";
         const text = content.querySelector(textSelector)?.textContent;
 
-        return { stars: stars, text: text || "" };
+        if (stars && stars < 3 && text && text !== "") reviewsList.push({ stars: stars, text: text });
       });
+
+      return reviewsList;
     }, reviewsSelector);
 
     return { place: place.name, reviews };
@@ -214,8 +222,8 @@ const getPlaceReviews = async (place: { name: string | null; url: string }, page
   }
 };
 
-const getPlacesReviews = async (places: { name: string | null; url: string }[], page: puppeteer.Page) => {
-  const reviewsByPlace: { place: string | null; reviews: { stars: number | null; text: string }[] | null }[] = [];
+const getPlacesReviews = async (places: { name: string; url: string }[], page: puppeteer.Page) => {
+  const reviewsByPlace: { place: string; reviews: { stars: number; text: string }[] }[] = [];
 
   console.clear();
   console.log(`${places.length} total places`);
@@ -225,7 +233,8 @@ const getPlacesReviews = async (places: { name: string | null; url: string }[], 
     for (let i = 0; i < places.length; i++) {
       const placeReviews = await getPlaceReviews(places[i], page);
       bar.update(i + 1);
-      reviewsByPlace.push(placeReviews);
+
+      if (placeReviews.reviews) reviewsByPlace.push(placeReviews);
     }
     bar.stop();
 
