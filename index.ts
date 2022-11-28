@@ -1,5 +1,66 @@
 import puppeteer from "puppeteer";
+import cliProgress from "cli-progress";
 import fs from "fs";
+
+const bar = new cliProgress.SingleBar({}, cliProgress.Presets.legacy);
+
+const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+const deleteResultsFile = () =>
+  fs.unlink("./results.json", (error) => {
+    null;
+  });
+
+const writeResultsInFile = (results: {
+  results: {
+    place: string | null;
+    reviews:
+      | {
+          stars: number;
+          text: string;
+        }[]
+      | null;
+  }[];
+}) => {
+  const jsonResults = JSON.stringify(results);
+
+  fs.writeFile("results.json", jsonResults, (error) => {
+    null;
+  });
+};
+
+const initPuppeteer = async (searchQuery: string) => {
+  try {
+    const browser = await puppeteer.launch();
+    const page = await browser.newPage();
+
+    if (!searchQuery) {
+      await browser.close();
+      throw new Error("Prompt is empty");
+    }
+
+    await page.goto(`https://www.google.com/maps/search/${searchQuery.replace(" ", "+")}`);
+
+    console.log("Went to the page");
+    return { browser, page };
+  } catch (error) {
+    throw error;
+  }
+};
+
+const passCookiePage = async (page: puppeteer.Page) => {
+  try {
+    const buttonSelector = "button";
+    await page.waitForSelector(buttonSelector);
+
+    await Promise.all([
+      page.waitForNavigation(), // The promise resolves after navigation has finished
+      page.click(buttonSelector), // Clicking the link will indirectly cause a navigation
+    ]);
+  } catch (error) {
+    throw error;
+  }
+};
 
 const checkIfInCookiePage = async (page: puppeteer.Page) => {
   try {
@@ -12,116 +73,220 @@ const checkIfInCookiePage = async (page: puppeteer.Page) => {
   }
 };
 
-const getReviews = async (searchQuery: string) => {
+const getElementHeightAndScroll = async (page: puppeteer.Page, selector: string) => {
   try {
-    if (fs.existsSync("./results.json")) {
-      fs.unlink("./results.json", (error) => {
-        null;
-      });
+    const elementHeight = await page.evaluate((selector) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`Couldn't find element with selector ${selector}`);
+
+      const elementHeight = parseInt(JSON.stringify(JSON.parse(element.scrollHeight.toString())));
+
+      element.scroll(0, elementHeight);
+
+      return elementHeight;
+    }, selector);
+
+    return elementHeight;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const scrollToTheBottomOfContainer = async (page: puppeteer.Page, containerSelector: string) => {
+  try {
+    await page.waitForSelector(containerSelector);
+
+    let firstHeight = await getElementHeightAndScroll(page, containerSelector);
+    await delay(3000);
+    let secondHeight = await getElementHeightAndScroll(page, containerSelector);
+
+    while (firstHeight < secondHeight) {
+      await delay(3000);
+
+      firstHeight = secondHeight;
+      secondHeight = await getElementHeightAndScroll(page, containerSelector);
     }
+  } catch (error) {
+    throw error;
+  }
+};
 
-    const browser = await puppeteer.launch();
-    const page = await browser.newPage();
+const getPlacesNameAndUrl = async (page: puppeteer.Page) => {
+  try {
+    const feedSelector = ".DxyBCb";
+    await page.waitForSelector(feedSelector);
 
-    await page.goto(`https://www.google.com/maps/search/${searchQuery.replace(" ", "+")}`);
+    // Get the feed container
+    const feedIndex = await page.evaluate(
+      (feedSelector) => [...document.querySelectorAll(feedSelector)].findIndex((anchor) => anchor.ariaLabel?.includes("Résultats")),
+      feedSelector
+    );
 
-    console.log("Went to the page");
+    const realFeedSelector = `${feedSelector}:nth-child(${feedIndex})`;
 
-    const res = await checkIfInCookiePage(page);
-
-    if (!res) throw new Error("Didn't start at cookie page");
-
-    const buttonSelector = "button";
-    await page.waitForSelector(buttonSelector);
-
-    await Promise.all([
-      page.waitForNavigation(), // The promise resolves after navigation has finished
-      page.click(buttonSelector), // Clicking the link will indirectly cause a navigation
-    ]);
-
-    const resp = await checkIfInCookiePage(page);
-
-    if (resp) throw new Error("Didn't pass the cookie page");
-    else console.log("Passed the cookie page");
+    // Scroll to the bottom of places feed
+    console.clear();
+    console.log("Fetching all the places corresponding to the given prompt. This can take a while...");
+    await scrollToTheBottomOfContainer(page, realFeedSelector);
 
     // Wait for the results page to load and display the results.
     const resultsSelector = ".hfpxzc";
     await page.waitForSelector(resultsSelector);
 
-    // Extract the urls from the restaurants
-    const restaurants = await page.evaluate((resultsSelector) => {
-      return [...document.querySelectorAll(resultsSelector)].map((anchor) => ({
-        name: anchor.ariaLabel,
-        url: (anchor as HTMLLinkElement).href,
-      }));
+    // Extract the urls from the places
+    const places = await page.evaluate((resultsSelector) => {
+      const placeList: { name: string; url: string }[] = [];
+      [...document.querySelectorAll(resultsSelector)].forEach((anchor) => {
+        if (anchor.ariaLabel)
+          placeList.push({
+            name: anchor.ariaLabel,
+            url: (anchor as HTMLLinkElement).href,
+          });
+      });
+      return placeList;
     }, resultsSelector);
 
-    const reviewsByRestaurant: { restaurant: string | null; reviews: { stars: string; text: string }[] }[] = [];
+    return places;
+  } catch (error) {
+    throw error;
+  }
+};
 
-    for (let i = 0; i < restaurants.length; i++) {
-      const restaurant = restaurants[i];
+const showAllReviews = async (page: puppeteer.Page) => {
+  try {
+    const moreReviewsButtonSelector = ".M77dve";
+    await page.waitForSelector(moreReviewsButtonSelector);
 
-      console.log(`Fetching ${restaurant.name}`);
+    // Find more reviews button
+    await page.evaluate((moreReviewsButtonSelector) => {
+      [...document.querySelectorAll(moreReviewsButtonSelector)].forEach((anchor) => {
+        if (anchor.ariaLabel?.includes("Plus d'avis")) (anchor as HTMLButtonElement).click();
+      });
+    }, moreReviewsButtonSelector);
+  } catch (error) {
+    throw error;
+  }
+};
 
-      await Promise.all([
-        page.waitForNavigation(), // The promise resolves after navigation has finished
-        page.goto(restaurant.url),
-      ]);
+const getPlaceReviews = async (place: { name: string; url: string }, page: puppeteer.Page) => {
+  console.log(`  Fetching ${place.name}`);
 
-      const moreReviewsButtonSelector = ".M77dve";
-      await page.waitForSelector(moreReviewsButtonSelector);
+  try {
+    // Go to place's Google Maps page
+    await Promise.all([
+      page.waitForNavigation(), // The promise resolves after navigation has finished
+      page.goto(place.url),
+    ]);
 
-      // Find more reviews button
-      await page.evaluate((moreReviewsButtonSelector) => {
-        [...document.querySelectorAll(moreReviewsButtonSelector)].forEach((anchor) => {
-          if (anchor.ariaLabel?.includes("Plus d'avis")) (anchor as HTMLButtonElement).click();
-        });
-      }, moreReviewsButtonSelector);
+    // Show all the place's reviews
+    await showAllReviews(page);
 
-      const reviewsSelector = ".jJc9Ad";
-      await page.waitForSelector(reviewsSelector);
+    const reviewsContainerSelector = ".dS8AEf";
 
-      const reviews = await page.evaluate((reviewsSelector) => {
-        return [...document.querySelectorAll(reviewsSelector)].map((anchor) => {
-          const contentSelector = ".GHT2ce";
-          const content = anchor.querySelectorAll(contentSelector)[1];
+    await scrollToTheBottomOfContainer(page, reviewsContainerSelector);
 
-          const starsSelector = ".kvMYJc";
-          const stars = content.querySelector(starsSelector)?.ariaLabel;
+    const reviewsSelector = ".jJc9Ad";
+    await page.waitForSelector(reviewsSelector);
 
-          const moreButtonSelector = ".w8nwRe";
-          const moreButton: HTMLButtonElement | null = content.querySelector(moreButtonSelector);
-          if (moreButton) moreButton.click();
+    // Get reviews from place
+    const reviews = await page.evaluate((reviewsSelector) => {
+      const reviewsList: { stars: number; text: string }[] = [];
+      [...document.querySelectorAll(reviewsSelector)].forEach((anchor) => {
+        // Get content div
+        const contentSelector = ".GHT2ce";
+        const content = anchor.querySelectorAll(contentSelector)[1];
 
-          const textSelector = ".wiI7pd";
-          const text = content.querySelector(textSelector)?.textContent;
+        // Get stars
+        const starsSelector = ".kvMYJc";
+        const starsRes = content.querySelector(starsSelector)?.ariaLabel;
+        const stars = starsRes ? parseInt(starsRes[1]) : null;
 
-          return { stars: stars || "0", text: text || "" };
-        });
-      }, reviewsSelector);
+        // Get expand button and click it if it exists
+        const moreButtonSelector = ".w8nwRe";
+        const moreButton: HTMLButtonElement | null = content.querySelector(moreButtonSelector);
+        if (moreButton) moreButton.click();
 
-      reviewsByRestaurant.push({ restaurant: restaurant.name, reviews });
+        // Get review text
+        const textSelector = ".wiI7pd";
+        const text = content.querySelector(textSelector)?.textContent;
+
+        if (stars && stars < 3 && text && text !== "") reviewsList.push({ stars: stars, text: text });
+      });
+
+      return reviewsList;
+    }, reviewsSelector);
+
+    return { place: place.name, reviews };
+  } catch (error) {
+    return { place: place.name, reviews: null };
+  }
+};
+
+const getPlacesReviews = async (places: { name: string; url: string }[], page: puppeteer.Page) => {
+  const reviewsByPlace: { place: string; reviews: { stars: number; text: string }[] }[] = [];
+
+  console.clear();
+  console.log(`${places.length} total places`);
+
+  try {
+    bar.start(places.length, 0);
+    for (let i = 0; i < places.length; i++) {
+      const placeReviews = await getPlaceReviews(places[i], page);
+      bar.update(i + 1);
+
+      if (placeReviews.reviews) reviewsByPlace.push(placeReviews);
     }
+    bar.stop();
 
-    // Save the results in results.json
+    return reviewsByPlace;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const getReviews = async (searchQuery: string) => {
+  try {
+    // Delete results.json file if it exists already
+    if (fs.existsSync("./results.json")) deleteResultsFile();
+
+    // Init puppeteer and go to Google Maps page
+    const { browser, page } = await initPuppeteer(searchQuery);
+
+    // Check if scraper is in cookie page
+    const cookies = await checkIfInCookiePage(page);
+
+    // If scraper is in cookie page, pass it
+    if (cookies) await passCookiePage(page);
+
+    const stillCookies = await checkIfInCookiePage(page);
+
+    if (stillCookies) throw new Error("Didn't pass the cookie page");
+    else console.log("Passed the cookie page");
+
+    // Get the places name and url
+    const places = await getPlacesNameAndUrl(page);
+
+    // Get reviews from the places
+    const reviewsByPlace = await getPlacesReviews(places, page);
+
     const results = {
-      results: reviewsByRestaurant,
+      results: reviewsByPlace,
     };
 
-    const jsonResults = JSON.stringify(results);
+    // Write results in results.json
+    writeResultsInFile(results);
 
-    fs.writeFile("results.json", jsonResults, (error) => {
-      null;
-    });
-
+    // Close scraper
     await browser.close();
 
+    console.clear();
     console.log("Done");
   } catch (error) {
     console.error(error);
   }
 };
 
+// Get prompt from the terminal when executing the script
 const getParamsFromTerminal = () => {
   const argvArray = [];
   for (let i = 0; i < process.argv.length - 2; i++) {
